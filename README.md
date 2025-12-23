@@ -4,9 +4,9 @@ A type-safe, Jest & Vitest-compatible mock for `next-safe-action` **v8**. Replic
 
 **Fun name:** "safe" + "mocker" = mocking tool for next-safe-action! 🎭
 
-[![npm version](https://img.shields.io/npm/v/safemocker)](https://www.npmjs.com/package/safemocker)
-[![npm downloads](https://img.shields.io/npm/dm/safemocker)](https://www.npmjs.com/package/safemocker)
-[![License](https://img.shields.io/npm/l/safemocker)](https://github.com/JSONbored/safemocker/blob/main/LICENSE)
+[![npm version](https://img.shields.io/npm/v/@jsonbored/safemocker)](https://www.npmjs.com/package/@jsonbored/safemocker)
+[![npm downloads](https://img.shields.io/npm/dm/@jsonbored/safemocker)](https://www.npmjs.com/package/@jsonbored/safemocker)
+[![License](https://img.shields.io/npm/l/@jsonbored/safemocker)](https://github.com/JSONbored/safemocker/blob/main/LICENSE)
 [![CI](https://github.com/JSONbored/safemocker/workflows/CI/badge.svg)](https://github.com/JSONbored/safemocker/actions)
 
 ## Table of Contents
@@ -57,11 +57,11 @@ A type-safe, Jest & Vitest-compatible mock for `next-safe-action` **v8**. Replic
 ## Installation
 
 ```bash
-npm install --save-dev safemocker
+npm install --save-dev @jsonbored/safemocker
 # or
-pnpm add -D safemocker
+pnpm add -D @jsonbored/safemocker
 # or
-yarn add -D safemocker
+yarn add -D @jsonbored/safemocker
 ```
 
 ## Quick Start
@@ -74,7 +74,7 @@ yarn add -D safemocker
 Create `__mocks__/next-safe-action.ts` in your project root:
 
 ```typescript
-import { createMockSafeActionClient } from 'safemocker/jest';
+import { createMockSafeActionClient } from '@jsonbored/safemocker/jest';
 
 export const createSafeActionClient = createMockSafeActionClient({
   defaultServerError: 'Something went wrong',
@@ -127,7 +127,7 @@ Create `vitest.setup.ts` or add to your test file:
 
 ```typescript
 import { vi } from 'vitest';
-import { createMockSafeActionClient } from 'safemocker/vitest';
+import { createMockSafeActionClient } from '@jsonbored/safemocker/vitest';
 
 vi.mock('next-safe-action', () => {
   return {
@@ -194,7 +194,7 @@ export default defineConfig({
 Creates a basic mock safe action client.
 
 ```typescript
-import { createMockSafeActionClient } from 'safemocker/jest'; // or 'safemocker/vitest'
+import { createMockSafeActionClient } from '@jsonbored/safemocker/jest'; // or 'safemocker/vitest'
 
 const client = createMockSafeActionClient({
   defaultServerError: 'Something went wrong',
@@ -216,7 +216,7 @@ const client = createMockSafeActionClient({
 Creates a mock client with authentication middleware pre-configured.
 
 ```typescript
-import { createAuthedActionClient } from 'safemocker/jest';
+import { createAuthedActionClient } from '@jsonbored/safemocker/jest';
 
 const authedAction = createAuthedActionClient({
   auth: {
@@ -240,7 +240,7 @@ const action = authedAction
 Creates a mock client with optional authentication middleware.
 
 ```typescript
-import { createOptionalAuthActionClient } from 'safemocker/jest';
+import { createOptionalAuthActionClient } from '@jsonbored/safemocker/jest';
 
 const optionalAuthAction = createOptionalAuthActionClient();
 
@@ -260,7 +260,7 @@ const action = optionalAuthAction
 Creates a mock client with rate limiting middleware.
 
 ```typescript
-import { createRateLimitedActionClient } from 'safemocker/jest';
+import { createRateLimitedActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const metadataSchema = z.object({
@@ -286,7 +286,7 @@ const action = rateLimitedAction
 Creates all action client variants matching your real `safe-action.ts` pattern.
 
 ```typescript
-import { createCompleteActionClient } from 'safemocker/jest';
+import { createCompleteActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const metadataSchema = z.object({
@@ -343,7 +343,7 @@ interface MockSafeActionClientConfig {
 <summary><strong>Basic Action Testing</strong></summary>
 
 ```typescript
-import { createAuthedActionClient } from 'safemocker/jest';
+import { createAuthedActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const authedAction = createAuthedActionClient();
@@ -385,7 +385,7 @@ expect(result.data).toEqual({
 <summary><strong>Validation Error Testing</strong></summary>
 
 ```typescript
-import { createAuthedActionClient } from 'safemocker/jest';
+import { createAuthedActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const authedAction = createAuthedActionClient();
@@ -419,7 +419,7 @@ expect(result.data).toBeUndefined();
 <summary><strong>Error Handling Testing</strong></summary>
 
 ```typescript
-import { createAuthedActionClient } from 'safemocker/jest';
+import { createAuthedActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const authedAction = createAuthedActionClient({
@@ -461,7 +461,7 @@ expect(prodResult.serverError).not.toBe('Sensitive error details');
 <summary><strong>Custom Middleware Testing</strong></summary>
 
 ```typescript
-import { createMockSafeActionClient } from 'safemocker/jest';
+import { createMockSafeActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const client = createMockSafeActionClient();
@@ -495,7 +495,7 @@ expect(result.data).toEqual({
 <summary><strong>Complex Integration Testing</strong></summary>
 
 ```typescript
-import { createCompleteActionClient } from 'safemocker/jest';
+import { createCompleteActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const metadataSchema = z.object({
@@ -566,7 +566,7 @@ expect(validationResult.fieldErrors?.status).toBeDefined();
 <summary><strong>Discriminated Unions & Complex Validation</strong></summary>
 
 ```typescript
-import { createAuthedActionClient } from 'safemocker/jest';
+import { createAuthedActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const authedAction = createAuthedActionClient();
@@ -652,7 +652,7 @@ expect(invalidResult.fieldErrors?.['content.author']).toBeDefined();
 <summary><strong>Partial Updates & Batch Operations</strong></summary>
 
 ```typescript
-import { createAuthedActionClient } from 'safemocker/jest';
+import { createAuthedActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const authedAction = createAuthedActionClient();
@@ -806,7 +806,7 @@ expect(result.fieldErrors?.items).toBeDefined();
 Rate limiting middleware is included in `rateLimitedAction`:
 
 ```typescript
-import { createRateLimitedActionClient } from 'safemocker/jest';
+import { createRateLimitedActionClient } from '@jsonbored/safemocker/jest';
 import { z } from 'zod';
 
 const metadataSchema = z.object({
@@ -1154,7 +1154,7 @@ vi.mock('./safe-action.ts', async () => {
 **After (safemocker):**
 ```typescript
 // __mocks__/next-safe-action.ts
-import { createMockSafeActionClient } from 'safemocker/jest';
+import { createMockSafeActionClient } from '@jsonbored/safemocker/jest';
 
 export const createSafeActionClient = createMockSafeActionClient({
   auth: { testUserId: 'test-user-id' },
