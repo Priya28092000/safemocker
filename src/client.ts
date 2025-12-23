@@ -12,7 +12,7 @@ import type {
   Middleware,
   ActionHandler,
 } from './types';
-import { validateInput } from './validation';
+import { validateInput, validateOutput } from './validation';
 import { handleError } from './error-handler';
 import { wrapResult } from './result-wrapper';
 
@@ -20,6 +20,8 @@ import { wrapResult } from './result-wrapper';
  * Builder class for input schema step
  */
 class SchemaBuilder<T extends z.ZodType> {
+  private _outputSchema?: z.ZodType;
+
   constructor(
     private schema: T,
     private middlewares: Middleware[],
@@ -27,10 +29,20 @@ class SchemaBuilder<T extends z.ZodType> {
   ) {}
 
   /**
+   * Add output schema for validation
+   * In next-safe-action, this validates the handler return value against the schema.
+   * In safemocker, this performs the same validation to catch output bugs in tests.
+   */
+  outputSchema<TOutputSchema extends z.ZodType>(outputSchema: TOutputSchema): SchemaBuilder<T> {
+    this._outputSchema = outputSchema;
+    return this;
+  }
+
+  /**
    * Add metadata to the action
    */
   metadata(metadata: any): MetadataBuilder<T> {
-    return new MetadataBuilder(this.schema, metadata, this.middlewares, this.config);
+    return new MetadataBuilder(this.schema, metadata, this.middlewares, this.config, this._outputSchema);
   }
 
   /**
@@ -84,10 +96,20 @@ class SchemaBuilder<T extends z.ZodType> {
         };
 
         // Execute middleware chain
-        const result = await middlewareChain(0, context);
+        const handlerResult = await middlewareChain(0, context);
 
-        // Step 3: Wrap result
-        return wrapResult(result);
+        // Step 3: Validate output schema if provided
+        if (this._outputSchema) {
+          const outputValidationResult = validateOutput(handlerResult, this._outputSchema);
+          if (!outputValidationResult.success) {
+            return outputValidationResult.result as SafeActionResult<TOutput>;
+          }
+          // Use validated output
+          return wrapResult(outputValidationResult.data) as SafeActionResult<TOutput>;
+        }
+
+        // Step 4: Wrap result
+        return wrapResult(handlerResult);
       } catch (error) {
         return handleError(error, {
           defaultServerError: this.config.defaultServerError,
@@ -102,12 +124,27 @@ class SchemaBuilder<T extends z.ZodType> {
  * Builder class for metadata step
  */
 class MetadataBuilder<T extends z.ZodType> {
+  private _outputSchema?: z.ZodType;
+
   constructor(
     private schema: T,
     private metadata: any,
     private middlewares: Middleware[],
-    private config: Required<MockSafeActionClientConfig>
-  ) {}
+    private config: Required<MockSafeActionClientConfig>,
+    outputSchema?: z.ZodType
+  ) {
+    this._outputSchema = outputSchema;
+  }
+
+  /**
+   * Add output schema for validation
+   * In next-safe-action, this validates the handler return value against the schema.
+   * In safemocker, this performs the same validation to catch output bugs in tests.
+   */
+  outputSchema<TOutputSchema extends z.ZodType>(outputSchema: TOutputSchema): MetadataBuilder<T> {
+    this._outputSchema = outputSchema;
+    return this;
+  }
 
   /**
    * Add action handler
@@ -159,10 +196,20 @@ class MetadataBuilder<T extends z.ZodType> {
         };
 
         // Execute middleware chain
-        const result = await middlewareChain(0, context);
+        const handlerResult = await middlewareChain(0, context);
 
-        // Step 3: Wrap result
-        return wrapResult(result);
+        // Step 3: Validate output schema if provided
+        if (this._outputSchema) {
+          const outputValidationResult = validateOutput(handlerResult, this._outputSchema);
+          if (!outputValidationResult.success) {
+            return outputValidationResult.result as SafeActionResult<TOutput>;
+          }
+          // Use validated output
+          return wrapResult(outputValidationResult.data) as SafeActionResult<TOutput>;
+        }
+
+        // Step 4: Wrap result
+        return wrapResult(handlerResult);
       } catch (error) {
         return handleError(error, {
           defaultServerError: this.config.defaultServerError,

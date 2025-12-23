@@ -286,5 +286,151 @@ describe('client', () => {
       expect(result.data).toEqual({ name: 'Test' });
     });
   });
+
+  describe('outputSchema', () => {
+    it('should validate output against schema and return data on success', async () => {
+      const client = createMockSafeActionClient();
+      const inputSchema = z.object({ value: z.number() });
+      const outputSchema = z.object({
+        success: z.boolean(),
+        data: z.object({ value: z.number() }),
+      });
+
+      const action = client
+        .inputSchema(inputSchema)
+        .outputSchema(outputSchema)
+        .action(async ({ parsedInput }) => {
+          return {
+            success: true,
+            data: { value: parsedInput.value * 2 },
+          };
+        });
+
+      const result = await action({ value: 5 });
+
+      expect(result.data).toEqual({
+        success: true,
+        data: { value: 10 },
+      });
+      expect(result.serverError).toBeUndefined();
+      expect(result.validationErrors).toBeUndefined();
+    });
+
+    it('should return validationErrors when output does not match schema', async () => {
+      const client = createMockSafeActionClient();
+      const inputSchema = z.object({ value: z.number() });
+      const outputSchema = z.object({
+        success: z.boolean(),
+        data: z.object({ value: z.number() }),
+      });
+
+      const action = client
+        .inputSchema(inputSchema)
+        .outputSchema(outputSchema)
+        .action(async ({ parsedInput }) => {
+          // Return invalid output (missing 'data' field)
+          return {
+            success: true,
+            // Missing 'data' field
+          };
+        });
+
+      const result = await action({ value: 5 });
+
+      expect(result.data).toBeUndefined();
+      expect(result.serverError).toBeUndefined();
+      expect(result.validationErrors).toBeDefined();
+      expect(result.validationErrors?.data).toBeDefined();
+      expect(Array.isArray(result.validationErrors?.data)).toBe(true);
+    });
+
+    it('should support outputSchema with metadata', async () => {
+      const client = createMockSafeActionClient();
+      const inputSchema = z.object({ name: z.string() });
+      const outputSchema = z.object({
+        id: z.string(),
+        name: z.string(),
+      });
+
+      const action = client
+        .inputSchema(inputSchema)
+        .outputSchema(outputSchema)
+        .metadata({ actionName: 'createUser' })
+        .action(async ({ parsedInput }) => {
+          return {
+            id: 'user-123',
+            name: parsedInput.name,
+          };
+        });
+
+      const result = await action({ name: 'John' });
+
+      expect(result.data).toEqual({
+        id: 'user-123',
+        name: 'John',
+      });
+      expect(result.serverError).toBeUndefined();
+    });
+
+    it('should support outputSchema before metadata', async () => {
+      const client = createMockSafeActionClient();
+      const inputSchema = z.object({ name: z.string() });
+      const outputSchema = z.object({
+        id: z.string(),
+        name: z.string(),
+      });
+
+      const action = client
+        .inputSchema(inputSchema)
+        .outputSchema(outputSchema)
+        .metadata({ actionName: 'createUser' })
+        .action(async ({ parsedInput }) => {
+          return {
+            id: 'user-123',
+            name: parsedInput.name,
+          };
+        });
+
+      const result = await action({ name: 'John' });
+
+      expect(result.data).toEqual({
+        id: 'user-123',
+        name: 'John',
+      });
+    });
+
+    it('should return validationErrors with field paths for nested objects', async () => {
+      const client = createMockSafeActionClient();
+      const inputSchema = z.object({ value: z.number() });
+      const outputSchema = z.object({
+        success: z.boolean(),
+        data: z.object({
+          id: z.string(),
+          value: z.number(),
+        }),
+      });
+
+      const action = client
+        .inputSchema(inputSchema)
+        .outputSchema(outputSchema)
+        .action(async ({ parsedInput }) => {
+          // Return invalid output (missing 'id' in nested 'data' object)
+          return {
+            success: true,
+            data: {
+              // Missing 'id' field
+              value: parsedInput.value,
+            },
+          };
+        });
+
+      const result = await action({ value: 5 });
+
+      expect(result.data).toBeUndefined();
+      expect(result.validationErrors).toBeDefined();
+      expect(result.validationErrors?.['data.id']).toBeDefined();
+      expect(Array.isArray(result.validationErrors?.['data.id'])).toBe(true);
+    });
+  });
 });
 

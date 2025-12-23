@@ -17,23 +17,23 @@
     "type": "git",
     "url": "https://github.com/JSONbored/safemocker"
   },
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "require": "./dist/index.cjs"
     },
     "./jest": {
       "types": "./dist/jest-adapter.d.ts",
       "import": "./dist/jest-adapter.mjs",
-      "require": "./dist/jest-adapter.js"
+      "require": "./dist/jest-adapter.cjs"
     },
     "./vitest": {
       "types": "./dist/vitest-adapter.d.ts",
       "import": "./dist/vitest-adapter.mjs",
-      "require": "./dist/vitest-adapter.js"
+      "require": "./dist/vitest-adapter.cjs"
     }
   },
   "files": [
