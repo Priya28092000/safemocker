@@ -68,13 +68,29 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       
+      - name: Extract changelog for version
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Extract the version section from CHANGELOG.md
+          # Find the line with [VERSION] and extract until the next version section or end of file
+          awk -v version="${VERSION}" '
+            BEGIN { found=0 }
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" version "]") > 0) found=1
+            }
+            found { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          echo "notes_path=/tmp/release-notes.md" >> $GITHUB_OUTPUT
+      
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
-          body_path: CHANGELOG.md
-          generate_release_notes: true
+          name: ${{ github.ref_name }}
+          body_path: ${{ steps.changelog.outputs.notes_path }}
+          generate_release_notes: false
           draft: false
           prerelease: false
         env:
