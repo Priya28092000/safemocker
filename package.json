@@ -11,12 +11,17 @@
     "type-safe",
     "server-actions"
   ],
+  "homepage": "https://github.com/JSONbored/safemocker#readme",
+  "bugs": {
+    "url": "https://github.com/JSONbored/safemocker/issues"
+  },
   "license": "MIT",
   "author": "JSONbored",
   "repository": {
     "type": "git",
     "url": "https://github.com/JSONbored/safemocker"
   },
+  "sideEffects": false,
   "main": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -45,10 +50,25 @@
     "build": "rm -rf dist && tsup && pnpm build:types",
     "build:types": "tsc --declaration --outDir dist",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
-    "type-check": "tsc --noEmit",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "lint": "eslint src --ext .ts",
+    "lint": "trunk check eslint",
+    "lint:fix": "trunk check --fix eslint",
+    "format": "trunk fmt prettier",
+    "format:check": "trunk fmt --check prettier",
+    "test": "jest --config .trunk/configs/jest.config.cjs",
+    "test:coverage": "jest --coverage --config .trunk/configs/jest.config.cjs",
+    "test:watch": "jest --watch --config .trunk/configs/jest.config.cjs",
+    "type-check": "trunk check typescript",
+    "check": "trunk check",
+    "check:fix": "trunk check --fix",
+    "fmt": "trunk fmt",
+    "fmt:check": "trunk fmt --check",
+    "changelog:generate": "git-cliff --config cliff.toml --tag v$(node -p \"require('./package.json').version\")",
+    "changelog:preview": "git-cliff --config cliff.toml --tag v$(node -p \"require('./package.json').version\") --unreleased",
+    "bump:major": "tsx scripts/bump-version.ts major",
+    "bump:minor": "tsx scripts/bump-version.ts minor",
+    "bump:patch": "tsx scripts/bump-version.ts patch",
+    "analyze:commits": "tsx scripts/analyze-commits.ts",
+    "prepare": "pnpm build",
     "prepublishOnly": "pnpm build"
   },
   "peerDependencies": {
@@ -58,18 +78,28 @@
   "devDependencies": {
     "@types/jest": "^30.0.0",
     "@types/node": "^25.0.3",
+    "git-cliff": "^2.5.0",
     "jest": "^30.2.0",
+    "jest-junit": "^16.0.0",
     "next": "^16.1.1",
     "next-safe-action": "^8.0.11",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "ts-jest": "^29.4.6",
     "tsup": "^8.5.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.9.3",
     "zod": "^4.2.1"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/JSONbored"
   },
   "pnpm": {
     "overrides": {

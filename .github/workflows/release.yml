@@ -34,8 +34,6 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -64,9 +62,7 @@ jobs:
           echo "✅ Version match: $PACKAGE_VERSION"
       
       - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
       
       - name: Extract changelog for version
         id: changelog

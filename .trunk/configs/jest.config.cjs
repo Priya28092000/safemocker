@@ -1,10 +1,17 @@
 /**
- * Jest Configuration for safemocker
+ * Jest Configuration for Safemocker
  *
- * Handles ESM modules (next-safe-action) by mocking them at the package level
+ * Moved to .trunk/configs/ for Trunk integration
+ *
+ * Test files should be co-located with source files using *.test.ts naming.
+ * Example: adapter.ts → adapter.test.ts (same directory)
  */
 
 module.exports = {
+  // CRITICAL: Set rootDir to project root (not .trunk/configs/)
+  // This ensures all path mappings work correctly
+  rootDir: '../..',
+  
   preset: 'ts-jest',
   testEnvironment: 'node',
   testMatch: [
@@ -44,6 +51,24 @@ module.exports = {
   // Transform next-safe-action package (if needed)
   transformIgnorePatterns: [
     'node_modules/(?!(next-safe-action)/)',
+  ],
+  
+  // JUnit XML reporter for Trunk Flaky Tests integration
+  // Outputs test results in JUnit XML format for Trunk cloud analysis
+  reporters: [
+    'default',
+    [
+      'jest-junit',
+      {
+        outputDirectory: '../../.trunk/test-results/jest',
+        outputName: 'junit.xml',
+        addFileAttribute: 'true',
+        reportTestSuiteErrors: 'true',
+        suiteName: 'Jest Tests',
+        classNameTemplate: '{classname}',
+        titleTemplate: '{title}',
+      },
+    ],
   ],
 };
 

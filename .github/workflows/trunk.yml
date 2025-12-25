@@ -1,0 +1,69 @@
+# Trunk Code Quality CI
+# Runs Trunk linters and checks on every PR and push to main
+name: Trunk Code Quality
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-progress runs when new commits pushed (saves resources)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trunk-check:
+    name: Trunk Code Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      # Cache Trunk tools and linters for faster CI runs
+      - name: Cache Trunk
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trunk
+          key: trunk-${{ runner.os }}-${{ hashFiles('.trunk/trunk.yaml') }}
+          restore-keys: |
+            trunk-${{ runner.os }}-
+      
+      # Run Trunk checks (linting, formatting, type checking)
+      - name: Trunk Code Quality
+        uses: trunk-io/trunk-action@v1
+        with:
+          # Check only changed files for PRs, all files for pushes to main
+          check-mode: ${{ github.event_name == 'pull_request' && 'changed' || 'all' }}
+          # Upload test results for flaky test detection
+          upload-test-results: true
+      
+      # Upload test results to Trunk Flaky Tests (if available)
+      - name: Upload test results to Trunk Flaky Tests
+        if: always()
+        uses: trunk-io/analytics-uploader@v1
+        with:
+          junit-paths: '.trunk/test-results/**/*.xml'
+          org-slug: ${{ secrets.TRUNK_ORG_SLUG }}
+          token: ${{ secrets.TRUNK_API_TOKEN }}
+        continue-on-error: true  # Don't fail if Trunk org not configured
+

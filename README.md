@@ -1,25 +1,35 @@
+<div align="center">
+
 # safemocker
 
-A type-safe, Jest & Vitest-compatible mock for `next-safe-action` **v8**. Replicates real middleware behavior and returns proper `SafeActionResult` structure.
+**A type-safe, Jest & Vitest-compatible mock for `next-safe-action` v8**
 
-**Fun name:** "safe" + "mocker" = mocking tool for next-safe-action! 🎭
+Replicates real middleware behavior and returns proper `SafeActionResult` structure.
 
-[![npm version](https://img.shields.io/npm/v/@jsonbored/safemocker)](https://www.npmjs.com/package/@jsonbored/safemocker)
-[![npm downloads](https://img.shields.io/npm/dm/@jsonbored/safemocker)](https://www.npmjs.com/package/@jsonbored/safemocker)
-[![License](https://img.shields.io/npm/l/@jsonbored/safemocker)](https://github.com/JSONbored/safemocker/blob/main/LICENSE)
-[![CI](https://github.com/JSONbored/safemocker/workflows/CI/badge.svg)](https://github.com/JSONbored/safemocker/actions)
+**Package Info**
+[![npm version](https://img.shields.io/npm/v/@jsonbored/safemocker?style=flat-square)](https://www.npmjs.com/package/@jsonbored/safemocker)
+[![npm downloads](https://img.shields.io/npm/dm/@jsonbored/safemocker?style=flat-square)](https://www.npmjs.com/package/@jsonbored/safemocker)
+[![License](https://img.shields.io/npm/l/@jsonbored/safemocker?style=flat-square)](https://github.com/JSONbored/safemocker/blob/main/LICENSE)
 
-## Table of Contents
+**Status**
+[![CI](https://github.com/JSONbored/safemocker/workflows/CI/badge.svg?style=flat-square)](https://github.com/JSONbored/safemocker/actions)
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen?style=flat-square&logo=node.js)](https://nodejs.org/)
 
-- [Overview](#overview)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
+</div>
+
+## 📑 Table of Contents
+
+- [✨ Features](#-features)
+- [🚀 Quick Start](#-quick-start)
+- [📦 Installation](#-installation)
+- [📚 Quick Start Guide](#-quick-start-guide)
   - [Jest Integration](#jest-integration)
   - [Vitest Integration](#vitest-integration)
-- [API Reference](#api-reference)
+- [📖 API Reference](#-api-reference)
   - [Factory Functions](#factory-functions)
   - [Configuration Options](#configuration-options)
-- [Usage Examples](#usage-examples)
+- [💡 Usage Examples](#-usage-examples)
   - [Basic Action Testing](#basic-action-testing)
   - [Validation Error Testing](#validation-error-testing)
   - [Error Handling Testing](#error-handling-testing)
@@ -27,22 +37,23 @@ A type-safe, Jest & Vitest-compatible mock for `next-safe-action` **v8**. Replic
   - [Complex Integration Testing](#complex-integration-testing)
   - [Discriminated Unions & Complex Validation](#discriminated-unions--complex-validation)
   - [Partial Updates & Batch Operations](#partial-updates--batch-operations)
-- [Advanced Features](#advanced-features)
+- [🚀 Advanced Features](#-advanced-features)
   - [Nested Validation Errors](#nested-validation-errors)
   - [Discriminated Unions](#discriminated-unions)
   - [Array Validation](#array-validation)
   - [Rate Limited Actions](#rate-limited-actions)
-- [How It Works](#how-it-works)
+- [⚙️ How It Works](#️-how-it-works)
   - [Method Chaining](#method-chaining)
   - [Middleware Chain Execution](#middleware-chain-execution)
   - [SafeActionResult Structure](#safeactionresult-structure)
-- [Example Files](#example-files)
-- [Caveats & Considerations](#caveats--considerations)
-- [Troubleshooting](#troubleshooting)
-- [Migration Guide](#migration-guide)
-- [Contributing](#contributing)
+- [📁 Example Files](#-example-files)
+- [⚠️ Caveats & Considerations](#️-caveats--considerations)
+- [🔧 Troubleshooting](#-troubleshooting)
+- [🔄 Migration Guide](#-migration-guide)
+- [🤝 Contributing](#-contributing)
+- [🔗 Related Projects](#-related-projects)
 
-## Overview
+## ✨ Features
 
 `safemocker` solves the critical problem of testing `next-safe-action` v8 in Jest environments where ESM modules (`.mjs` files) cannot be directly imported. It provides a comprehensive mocking solution that:
 
@@ -51,10 +62,32 @@ A type-safe, Jest & Vitest-compatible mock for `next-safe-action` **v8**. Replic
 - ✅ **Replicates real middleware behavior** - Auth, validation, error handling work exactly like the real library
 - ✅ **Returns proper SafeActionResult structure** - Type-safe, matches real API exactly
 - ✅ **Type-safe API** - Full TypeScript integration with proper inference
-- ✅ **Easy to use** - Similar to Prismocker pattern, minimal setup required
+- ✅ **Easy to use** - Similar to [Prismocker](https://github.com/JSONbored/prismocker) pattern, minimal setup required
 - ✅ **Standalone package** - Can be extracted to separate repo for OSS distribution
 
-## Installation
+## 🚀 Quick Start
+
+```typescript
+import { createAuthedActionClient } from '@jsonbored/safemocker/jest';
+import { z } from 'zod';
+
+// Create authenticated action client
+const authedAction = createAuthedActionClient();
+
+// Define your action
+const createUser = authedAction
+  .inputSchema(z.object({ name: z.string().min(1), email: z.string().email() }))
+  .metadata({ actionName: 'createUser', category: 'user' })
+  .action(async ({ parsedInput, ctx }) => {
+    return { id: 'new-id', ...parsedInput, createdBy: ctx.userId };
+  });
+
+// Test it!
+const result = await createUser({ name: 'John', email: 'john@example.com' });
+expect(result.data).toEqual({ id: 'new-id', name: 'John', email: 'john@example.com', createdBy: 'test-user-id' });
+```
+
+## 📦 Installation
 
 ```bash
 npm install --save-dev @jsonbored/safemocker
@@ -64,7 +97,7 @@ pnpm add -D @jsonbored/safemocker
 yarn add -D @jsonbored/safemocker
 ```
 
-## Quick Start
+## 📚 Quick Start Guide
 
 <details>
 <summary><strong>Jest Integration</strong></summary>
@@ -184,7 +217,7 @@ export default defineConfig({
 
 </details>
 
-## API Reference
+## 📖 API Reference
 
 ### Factory Functions
 
@@ -337,7 +370,7 @@ interface MockSafeActionClientConfig {
 
 </details>
 
-## Usage Examples
+## 💡 Usage Examples
 
 <details>
 <summary><strong>Basic Action Testing</strong></summary>
@@ -723,7 +756,7 @@ expect(batchResult.data?.totalUpdated).toBe(2);
 
 </details>
 
-## Advanced Features
+## 🚀 Advanced Features
 
 <details>
 <summary><strong>Nested Validation Errors</strong></summary>
@@ -826,7 +859,7 @@ const searchAction = rateLimitedAction
 
 </details>
 
-## How It Works
+## ⚙️ How It Works
 
 <details>
 <summary><strong>Method Chaining</strong></summary>
@@ -869,7 +902,7 @@ interface SafeActionResult<TData> {
 
 </details>
 
-## Example Files
+## 📁 Example Files
 
 The `safemocker` package includes comprehensive examples with full test coverage:
 
@@ -925,7 +958,7 @@ Complex content management actions demonstrating advanced v8 features:
 
 </details>
 
-## Caveats & Considerations
+## ⚠️ Caveats & Considerations
 
 <details>
 <summary><strong>Jest ESM Limitations</strong></summary>
@@ -1020,7 +1053,7 @@ Complex content management actions demonstrating advanced v8 features:
 
 </details>
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
 <details>
 <summary><strong>Jest: "Cannot find module 'next-safe-action'"</strong></summary>
@@ -1123,7 +1156,7 @@ expect(result.fieldErrors?.['user.email']).toBeDefined();
 
 </details>
 
-## Migration Guide
+## 🔄 Migration Guide
 
 <details>
 <summary><strong>From Manual Mocks</strong></summary>
@@ -1173,7 +1206,7 @@ import { authedAction } from './safe-action';
 
 </details>
 
-## Contributing
+## 🤝 Contributing
 
 This package is designed to be standalone and extractable. Contributions welcome!
 
@@ -1185,7 +1218,8 @@ MIT
 
 JSONbored
 
-## Related Projects
+## 🔗 Related Projects
 
-- [next-safe-action](https://github.com/TheEdoRan/next-safe-action) - The real library being mocked
-- [Prismocker](https://github.com/JSONbored/prismocker) - Similar mocking tool for Prisma (inspiration for this package)
+- **[next-safe-action](https://github.com/TheEdoRan/next-safe-action)** - The real library being mocked
+- **[Prismocker](https://github.com/JSONbored/prismocker)** - Similar type-safe mocking tool for Prisma Client (inspiration for this package)
+- **[Claude Pro Directory](https://github.com/JSONbored/claudepro-directory)** - The parent project where safemocker and prismocker were originally developed
