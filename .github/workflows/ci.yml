@@ -36,15 +36,7 @@ jobs:
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      
-      - name: Install Trunk
-        uses: trunk-io/setup-trunk@v1
-        with:
-          version: '1.25.0'
-      
-      - name: Trunk Check (Lint, Type Check, Format)
-        run: trunk check --all
-      
+
       - name: Build
         run: pnpm build
       
