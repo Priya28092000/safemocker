@@ -89,10 +89,15 @@ jobs:
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
           echo "✅ Extracted version: $VERSION from tag: $TAG"
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
-        with:
-          version: 10
+      - name: Check for NPM_TOKEN secret before setup-node
+        run: |
+          echo "🔍 DEBUG: Checking for NPM_TOKEN secret..."
+          if [ -n "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "⚠️ WARNING: NPM_TOKEN secret exists in repository (this will cause setup-node to set NODE_AUTH_TOKEN)"
+            echo "For trusted publishing, NPM_TOKEN secret should NOT be set"
+          else
+            echo "✅ No NPM_TOKEN secret found (correct for trusted publishing)"
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -103,6 +108,38 @@ jobs:
           # According to official npm docs, setup-node with registry-url + id-token: write
           # should automatically use OIDC without needing NODE_AUTH_TOKEN
           # If NODE_AUTH_TOKEN is set, it will be logged and cleaned up before publish
+
+      - name: Check environment after setup-node
+        run: |
+          echo "🔍 DEBUG: Environment check after setup-node..."
+          echo "NODE_AUTH_TOKEN is set: $([ -n "$NODE_AUTH_TOKEN" ] && echo 'YES' || echo 'NO')"
+          echo "NPM_TOKEN secret exists: $([ -n "${{ secrets.NPM_TOKEN }}" ] && echo 'YES' || echo 'NO')"
+          echo "NPM_CONFIG_USERCONFIG: ${NPM_CONFIG_USERCONFIG:-not set}"
+          if [ -n "$NPM_CONFIG_USERCONFIG" ] && [ -f "$NPM_CONFIG_USERCONFIG" ]; then
+            echo "🔍 DEBUG: $NPM_CONFIG_USERCONFIG exists, checking for auth token..."
+            if grep -q "_authToken\|authToken" "$NPM_CONFIG_USERCONFIG"; then
+              echo "⚠️ WARNING: $NPM_CONFIG_USERCONFIG contains auth token references"
+              echo "Contents:"
+              cat "$NPM_CONFIG_USERCONFIG"
+            else
+              echo "✅ $NPM_CONFIG_USERCONFIG does not contain auth tokens"
+            fi
+          fi
+          if [ -f ~/.npmrc ]; then
+            echo "🔍 DEBUG: ~/.npmrc exists, checking for auth token..."
+            if grep -q "_authToken\|authToken" ~/.npmrc; then
+              echo "⚠️ WARNING: ~/.npmrc contains auth token references"
+            else
+              echo "✅ ~/.npmrc does not contain auth tokens"
+            fi
+          else
+            echo "✅ ~/.npmrc does not exist"
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: 10
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -151,11 +188,24 @@ jobs:
             echo "Value length: ${#NODE_AUTH_TOKEN} characters"
             echo "First 10 chars: ${NODE_AUTH_TOKEN:0:10}..."
           fi
-          if [ -f ~/.npmrc ]; then
-            echo "🔍 DEBUG: ~/.npmrc contents (auth-related lines only):"
-            grep -E "(authToken|_authToken|//registry.npmjs.org)" ~/.npmrc || echo "No auth configuration found"
+          echo "NPM_CONFIG_USERCONFIG: ${NPM_CONFIG_USERCONFIG:-not set}"
+          
+          # Check the actual .npmrc file location (set by setup-node)
+          NPMRC_FILE="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$NPMRC_FILE" ]; then
+            echo "🔍 DEBUG: $NPMRC_FILE exists, checking contents..."
+            echo "Full contents:"
+            cat "$NPMRC_FILE"
+            if grep -qE "(authToken|_authToken|\$\{NODE_AUTH_TOKEN\})" "$NPMRC_FILE"; then
+              echo "⚠️ WARNING: $NPMRC_FILE contains auth token references"
+            fi
           else
-            echo "✅ ~/.npmrc does not exist"
+            echo "✅ $NPMRC_FILE does not exist"
+          fi
+          
+          if [ -f ~/.npmrc ] && [ "$NPMRC_FILE" != "$HOME/.npmrc" ]; then
+            echo "🔍 DEBUG: ~/.npmrc also exists (separate from NPM_CONFIG_USERCONFIG)"
+            grep -E "(authToken|_authToken)" ~/.npmrc || echo "No auth tokens in ~/.npmrc"
           fi
           # #endregion
           
@@ -167,12 +217,45 @@ jobs:
             echo "⚠️ WARNING: NODE_AUTH_TOKEN is unexpectedly set - this prevents OIDC from working"
             echo "Unsetting NODE_AUTH_TOKEN to force OIDC usage..."
             unset NODE_AUTH_TOKEN
+            export NODE_AUTH_TOKEN=""  # Ensure it's unset in the environment
           fi
-          # Clean up any auth tokens from .npmrc that might interfere
-          if [ -f ~/.npmrc ] && grep -q "_authToken" ~/.npmrc; then
-            echo "⚠️ Removing auth token references from ~/.npmrc..."
-            sed -i '/_authToken/d' ~/.npmrc || true
+          
+          # Clean up the actual .npmrc file that setup-node creates
+          # This file is at $NPM_CONFIG_USERCONFIG (typically /home/runner/work/_temp/.npmrc)
+          NPMRC_FILE="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$NPMRC_FILE" ]; then
+            echo "🔍 DEBUG: Cleaning up $NPMRC_FILE..."
+            if grep -qE "(authToken|_authToken|\$\{NODE_AUTH_TOKEN\})" "$NPMRC_FILE"; then
+              echo "⚠️ Removing auth token references from $NPMRC_FILE..."
+              # Remove lines containing auth tokens or variable references
+              sed -i '/authToken/d; /\${NODE_AUTH_TOKEN}/d' "$NPMRC_FILE" || true
+              # If file is now empty or only has whitespace, delete it
+              if [ ! -s "$NPMRC_FILE" ] || [ -z "$(cat "$NPMRC_FILE" | tr -d '[:space:]')" ]; then
+                echo "⚠️ $NPMRC_FILE is now empty, deleting it..."
+                rm -f "$NPMRC_FILE"
+              else
+                echo "✅ Cleaned $NPMRC_FILE (remaining contents):"
+                cat "$NPMRC_FILE"
+              fi
+            else
+              echo "✅ $NPMRC_FILE does not contain auth tokens"
+            fi
           fi
+          
+          # Also clean ~/.npmrc if it exists separately
+          if [ -f ~/.npmrc ] && [ "$NPMRC_FILE" != "$HOME/.npmrc" ]; then
+            if grep -qE "(authToken|_authToken)" ~/.npmrc; then
+              echo "⚠️ Removing auth token references from ~/.npmrc..."
+              sed -i '/authToken/d' ~/.npmrc || true
+            fi
+          fi
+          
+          # Verify NODE_AUTH_TOKEN is still unset after cleanup
+          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "❌ Error: NODE_AUTH_TOKEN is still set after cleanup" >&2
+            exit 1
+          fi
+          echo "✅ NODE_AUTH_TOKEN is unset"
           
           # Verify OIDC token environment variables are available
           if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ] || [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
