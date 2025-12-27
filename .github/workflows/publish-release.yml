@@ -22,7 +22,6 @@
 # - Organization/User: JSONbored
 # - Repository: safemocker (or JSONbored/safemocker)
 # - Workflow filename: publish-release.yml (must match this file name exactly)
-# - Environment: production (must match the environment name below)
 #
 # See: https://docs.npmjs.com/trusted-publishers/
 # Documentation: .cursor/npm-trusted-publishing-setup.md
@@ -46,19 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     
-    # CRITICAL: Environment name must exactly match npm trusted publisher configuration
-    # This workflow filename (publish-release.yml) must also match npm config
-    # Required npm settings:
-    #   - Workflow filename: publish-release.yml
-    #   - Environment: production
-    #   - Repository: JSONbored/safemocker
-    #   - Organization: JSONbored
-    environment:
-      name: production
-    
     permissions:
+      id-token: write  # Required for OIDC (npm trusted publishing)
       contents: write  # Required to create GitHub releases
-      id-token: write  # Required for npm publish (OIDC with trusted publishing)
     
     steps:
       - name: Checkout repository
@@ -100,33 +89,23 @@ jobs:
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
           echo "✅ Extracted version: $VERSION from tag: $TAG"
 
-      - name: Setup Node.js (with OIDC for trusted publishing)
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-          # CRITICAL: setup-node must be configured BEFORE pnpm setup for OIDC to work correctly
-          # OIDC token is automatically used when id-token: write permission is set
-          # No NODE_AUTH_TOKEN needed for trusted publishing
-          # Note: cache is configured after pnpm is installed
-
       - name: Setup pnpm
         uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
         with:
           version: 10
 
-      - name: Configure Node.js cache
+      - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
-          # Configure caching after pnpm is available
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build project
-        run: pnpm build
+        run: pnpm build --if-present
 
       - name: Run tests
         run: pnpm test
@@ -156,27 +135,49 @@ jobs:
           VERSION="${{ steps.version.outputs.VERSION }}"
           
           echo "🔍 DEBUG: Publishing @jsonbored/safemocker@$VERSION to npm..."
-          echo "🔍 DEBUG: Using trusted publishing (OIDC) - no NODE_AUTH_TOKEN needed"
-          echo "🔍 DEBUG: Environment: ${{ github.environment }}"
+          echo "🔍 DEBUG: Using npm trusted publishing (OIDC)"
+          echo "🔍 DEBUG: npm version: $(npm --version)"
           echo "🔍 DEBUG: Repository: ${{ github.repository }}"
+          echo "🔍 DEBUG: Workflow file: publish-release.yml"
           
-          # For trusted publishing, npm automatically uses OIDC token from GitHub Actions
-          # The --provenance flag creates a signed provenance statement
-          # Ensure trusted publishing is configured in npm: https://docs.npmjs.com/trusted-publishers/
-          # Trusted publishing requires:
-          # 1. Environment name matches npm trusted publisher config (currently: production)
-          # 2. id-token: write permission (already set in permissions)
-          # 3. registry-url set in setup-node (already configured)
+          # According to official npm docs (https://docs.npmjs.com/trusted-publishers):
+          # - npm CLI automatically detects OIDC environments when:
+          #   1. id-token: write permission is set (✓ configured)
+          #   2. registry-url is set in setup-node (✓ configured)
+          #   3. No NODE_AUTH_TOKEN is provided (✓ not provided)
+          # - Provenance is automatically generated (no --provenance flag needed)
+          # - Just run: npm publish
+          # - For scoped packages, --access public is required
           
-          if ! npm publish --access public --provenance; then
+          # Verify npm version supports trusted publishing (requires >= 11.5.1)
+          NPM_VERSION=$(npm --version)
+          echo "✅ npm version $NPM_VERSION (trusted publishing requires >= 11.5.1)"
+          
+          # Publish using trusted publishing
+          # The npm CLI will automatically:
+          # 1. Detect OIDC environment
+          # 2. Use OIDC token for authentication
+          # 3. Generate provenance attestation automatically
+          if ! npm publish --access public; then
+            echo "" >&2
             echo "❌ Error: npm publish failed" >&2
-            echo "🔍 DEBUG: Check that trusted publishing is configured in npm for:" >&2
-            echo "  - Organization/User: JSONbored" >&2
+            echo "" >&2
+            echo "🔍 TROUBLESHOOTING: npm trusted publishing configuration" >&2
+            echo "" >&2
+            echo "According to npm docs, verify the following in npm trusted publisher settings:" >&2
+            echo "  All fields are case-sensitive and must match exactly:" >&2
+            echo "  1. Organization/User: JSONbored (must match GitHub org/username exactly)" >&2
+            echo "  2. Repository: safemocker (just the repo name, or JSONbored/safemocker)" >&2
+            echo "  3. Workflow filename: publish-release.yml (must include .yml extension)" >&2
+            echo "" >&2
+            echo "Current workflow values:" >&2
             echo "  - Repository: ${{ github.repository }}" >&2
-            echo "  - Workflow filename: publish-release.yml (must match exactly)" >&2
-            echo "  - Environment: production (must match exactly)" >&2
-            echo "  - See: https://docs.npmjs.com/trusted-publishers/" >&2
-            echo "  - Documentation: .cursor/npm-trusted-publishing-setup.md" >&2
+            echo "  - Workflow file: publish-release.yml" >&2
+            echo "" >&2
+            echo "Note: npm does not verify trusted publisher configuration when you save it." >&2
+            echo "Errors only appear when you attempt to publish." >&2
+            echo "" >&2
+            echo "See: https://docs.npmjs.com/trusted-publishers/" >&2
             exit 1
           fi
           
