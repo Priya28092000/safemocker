@@ -31,7 +31,8 @@ name: Publish Release
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers on version tags (e.g., v0.1.0, v1.2.3)
+      - 'v[0-9]+.[0-9]+.[0-9]+'  # Triggers on version tags (e.g., v0.1.0, v1.2.3)
+      - 'v*.*.*'  # Fallback pattern for broader matching
   workflow_dispatch:
     inputs:
       tag:
@@ -52,7 +53,8 @@ jobs:
     #   - Environment: production
     #   - Repository: JSONbored/safemocker
     #   - Organization: JSONbored
-    environment: production
+    environment:
+      name: production
     
     permissions:
       contents: write  # Required to create GitHub releases
@@ -270,6 +272,8 @@ jobs:
           generate_release_notes: false
           draft: false
           prerelease: false
+          # If release exists, this will update it (make_release_latest: true ensures it becomes the latest)
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
