@@ -1,0 +1,218 @@
+# Publish Release
+# Publishes npm package and creates GitHub Release when a version tag is pushed
+#
+# **What it does:**
+# 1. Extracts version from tag (e.g., v0.1.1 → 0.1.1)
+# 2. Verifies package.json version matches tag version
+# 3. Builds the project
+# 4. Runs tests
+# 5. Publishes to npm (using trusted publishing/OIDC)
+# 6. Extracts changelog section for the version
+# 7. Creates GitHub Release with changelog
+#
+# **Triggers:**
+# - Tag push matching v*.*.* pattern (automatic, triggered by version-bump.yml)
+# - Manual workflow_dispatch (with tag input for re-publishing)
+name: Publish Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags (e.g., v0.1.0, v1.2.3)
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name (e.g., v0.1.1)'
+        required: true
+        type: string
+
+jobs:
+  publish-release:
+    name: Publish to npm and create GitHub release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    # CRITICAL: Must match npm trusted publisher environment configuration
+    environment: production
+    
+    permissions:
+      contents: write  # Required to create GitHub releases
+      id-token: write  # Required for npm publish (OIDC with trusted publishing)
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history needed for changelog extraction
+          fetch-depth: 0
+          # For manual trigger, checkout the specified tag; for tag push, use the tag ref
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+      
+      - name: Extract version from tag
+        id: version
+        run: |
+          set -e  # Exit on error
+          
+          echo "🔍 DEBUG: Extracting version from tag..."
+          
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Manual trigger: extract from input tag
+            TAG="${{ github.event.inputs.tag }}"
+            echo "🔍 DEBUG: Manual trigger with tag: $TAG"
+          else
+            # Tag push: extract from GITHUB_REF (e.g., refs/tags/v0.1.1)
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "🔍 DEBUG: Tag push detected: $TAG"
+          fi
+          
+          # Remove 'v' prefix from tag (e.g., "v0.1.1" → "0.1.1")
+          VERSION="${TAG#v}"
+          
+          # Validate version matches semver pattern
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "❌ Error: Invalid version format '$VERSION' (from tag '$TAG')" >&2
+            echo "Expected format: v0.1.1 or 0.1.1" >&2
+            exit 1
+          fi
+          
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "✅ Extracted version: $VERSION from tag: $TAG"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'pnpm'
+          # OIDC is automatically used when id-token: write permission is set
+          # No NODE_AUTH_TOKEN needed for trusted publishing
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build project
+        run: pnpm build
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Verify package.json version matches tag
+        run: |
+          set -e  # Exit on error
+          
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${{ steps.version.outputs.VERSION }}"
+          
+          echo "🔍 DEBUG: package.json version: $PACKAGE_VERSION"
+          echo "🔍 DEBUG: Tag version: $TAG_VERSION"
+          
+          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Error: package.json version ($PACKAGE_VERSION) does not match tag version ($TAG_VERSION)." >&2
+            echo "This usually means the version-bump workflow didn't complete successfully." >&2
+            exit 1
+          fi
+          
+          echo "✅ package.json version matches tag version."
+
+      - name: Publish to npm
+        run: |
+          set -e  # Exit on error
+          
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          
+          echo "🔍 DEBUG: Publishing @jsonbored/safemocker@$VERSION to npm..."
+          echo "🔍 DEBUG: Using trusted publishing (OIDC) - no NODE_AUTH_TOKEN needed"
+          
+          # For trusted publishing, npm automatically uses OIDC token from GitHub Actions
+          # The --provenance flag creates a signed provenance statement
+          # Ensure trusted publishing is configured in npm: https://docs.npmjs.com/trusted-publishers/
+          npm publish --access public --provenance
+          
+          echo "✅ Published @jsonbored/safemocker@$VERSION to npm"
+
+      - name: Extract changelog for version
+        id: changelog
+        run: |
+          set -e  # Exit on error
+          
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          
+          echo "🔍 DEBUG: Extracting changelog section for version $VERSION..."
+          
+          if [ ! -f CHANGELOG.md ]; then
+            echo "⚠️ CHANGELOG.md not found, creating placeholder"
+            echo "No significant changes for this release." > /tmp/release-notes.md
+            echo "notes_path=/tmp/release-notes.md" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Extract the version section from CHANGELOG.md
+          # Find the line with [VERSION] and extract until the next version section or end of file
+          # Skip empty lines and link definitions at the bottom
+          CHANGELOG_SECTION=$(awk -v version="${VERSION}" '
+            BEGIN { found=0; content_found=0; in_section=0 }
+            /^## \[/ {
+              if (found) exit  # Found next version section, stop
+              if (index($0, "[" version "]") > 0) {
+                found=1
+                in_section=1
+                next  # Skip the header line itself (we'll add it back)
+              }
+            }
+            found && in_section {
+              # Skip link definitions at the bottom (lines starting with [version]:)
+              if ($0 ~ /^\[.*\]: /) {
+                next
+              }
+              # Track if we have actual content (non-empty lines)
+              if (length($0) > 0) {
+                content_found=1
+              }
+              print
+            }
+          ' CHANGELOG.md)
+          
+          # If no content found, create a placeholder
+          if [ -z "$CHANGELOG_SECTION" ] || [ -z "$(echo "$CHANGELOG_SECTION" | grep -v '^$')" ]; then
+            echo "⚠️ No changelog content found for version $VERSION. Creating a placeholder."
+            echo "No significant changes for this release." > /tmp/release-notes.md
+          else
+            # Add the version header back
+            echo "## [$VERSION] - $(date +%Y-%m-%d)" > /tmp/release-notes.md
+            echo "" >> /tmp/release-notes.md
+            echo "$CHANGELOG_SECTION" >> /tmp/release-notes.md
+          fi
+          
+          echo "notes_path=/tmp/release-notes.md" >> $GITHUB_OUTPUT
+          
+          # Debug: Show what was extracted
+          echo "🔍 DEBUG: Extracted changelog section (first 10 lines):"
+          head -10 /tmp/release-notes.md || echo "(empty)"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.TAG }}
+          name: ${{ steps.version.outputs.TAG }}
+          body_path: ${{ steps.changelog.outputs.notes_path }}
+          generate_release_notes: false
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## ✅ Release Published" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** ${{ steps.version.outputs.TAG }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **npm Package:** @jsonbored/safemocker@${{ steps.version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Release:** [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.TAG }})" >> $GITHUB_STEP_SUMMARY
+

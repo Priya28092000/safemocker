@@ -1,15 +1,18 @@
-# Auto Release
-# Automatically bumps version, generates changelog, and creates release when PR is merged
-# Optimizations: conditional execution (PR merged only), batch git ops, optimized tag fetching
+# Version Bump & Changelog Generation
+# Automatically bumps version, generates changelog, and creates release tag when PR is merged
 #
 # **What it does:**
-# 1. Analyzes commits since last tag to determine version bump type
-# 2. Auto-bumps version in package.json
-# 3. Auto-generates changelog entry using git-cliff
-# 4. Commits version + changelog changes
-# 5. Creates and pushes tag
-# 6. Creates GitHub Release
-name: Auto Release
+# 1. Analyzes commits since last tag to determine version bump type (using git-cliff)
+# 2. Calculates new version using git-cliff --bumped-version
+# 3. Generates changelog entry using git-cliff --latest --unreleased
+# 4. Updates package.json with new version
+# 5. Commits version + changelog changes
+# 6. Creates and pushes tag (which triggers publish-release.yml workflow)
+#
+# **Triggers:**
+# - PR merge to main (automatic)
+# - Manual workflow_dispatch (with optional bump_type override)
+name: Version Bump & Changelog
 
 on:
   pull_request:
@@ -30,7 +33,7 @@ on:
 
 # Only run when PR is merged (not just closed) OR when manually triggered
 jobs:
-  auto-release:
+  version-bump:
     # Skip if PR was closed without merging (but allow workflow_dispatch)
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
 
@@ -38,14 +41,14 @@ jobs:
     timeout-minutes: 10
 
     permissions:
-      contents: write # Required to create tags and releases
+      contents: write # Required to push commits and tags
       pull-requests: read # Required to read PR info
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # fetch-depth: 0 needed for git log since last tag
+          # CRITICAL: fetch-depth: 0 needed for git-cliff to access full commit history
           fetch-depth: 0
           # Use main branch for workflow_dispatch, otherwise use PR ref
           ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
@@ -65,49 +68,99 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Get last tag
+      - name: Get last tag (with comprehensive debugging)
         id: last_tag
         run: |
-          # Fetch tags explicitly (optimized - only tags, not full history)
-          git fetch --tags --depth=1 || true
-
+          set -e  # Exit on error
+          
+          echo "🔍 DEBUG: Fetching all tags..."
+          # CRITICAL: Fetch ALL tags (not just depth=1) to ensure we find the correct base tag
+          git fetch --tags --force || true
+          
+          echo "🔍 DEBUG: Listing all tags..."
+          git tag -l "v*" | sort -V
+          
+          echo "🔍 DEBUG: Getting most recent version tag..."
           # Get the most recent tag matching v*.*.* pattern
+          # Use --abbrev=0 to get full tag name, not abbreviated
           LAST_TAG=$(git describe --tags --match 'v*.*.*' --abbrev=0 2>/dev/null || echo "")
+          
           if [ -z "$LAST_TAG" ]; then
-            echo "No previous tag found, starting from v0.0.0"
+            echo "⚠️ No previous tag found, starting from v0.0.0"
             echo "TAG=v0.0.0" >> $GITHUB_OUTPUT
             echo "HAS_PREVIOUS=false" >> $GITHUB_OUTPUT
           else
-            echo "Last tag: $LAST_TAG"
+            echo "✅ Last tag found: $LAST_TAG"
             echo "TAG=$LAST_TAG" >> $GITHUB_OUTPUT
             echo "HAS_PREVIOUS=true" >> $GITHUB_OUTPUT
+            
+            # Debug: Show commit hash of last tag
+            TAG_HASH=$(git rev-parse "$LAST_TAG" 2>/dev/null || echo "unknown")
+            echo "🔍 DEBUG: Last tag $LAST_TAG points to commit: $TAG_HASH"
           fi
 
-      - name: Get commits since last tag
+      - name: Get commits since last tag (with comprehensive debugging)
         id: commits
         run: |
-          if [ "${{ steps.last_tag.outputs.HAS_PREVIOUS }}" == "true" ]; then
-            # Get commits since last tag
-            COMMITS=$(git log ${{ steps.last_tag.outputs.TAG }}..HEAD --pretty=format:"%s" --no-merges)
+          set -e  # Exit on error
+          
+          LAST_TAG="${{ steps.last_tag.outputs.TAG }}"
+          HAS_PREVIOUS="${{ steps.last_tag.outputs.HAS_PREVIOUS }}"
+          
+          echo "🔍 DEBUG: Last tag: $LAST_TAG"
+          echo "🔍 DEBUG: Has previous tag: $HAS_PREVIOUS"
+          echo "🔍 DEBUG: Current HEAD: $(git rev-parse HEAD)"
+          echo "🔍 DEBUG: Current branch: $(git branch --show-current || echo 'detached')"
+          
+          if [ "$HAS_PREVIOUS" == "true" ]; then
+            echo "🔍 DEBUG: Getting commits since $LAST_TAG..."
+            # Get commits since last tag (excluding merge commits)
+            COMMITS=$(git log "$LAST_TAG"..HEAD --pretty=format:"%h %s" --no-merges)
+            
+            # Also get commit count for verification
+            COMMIT_COUNT=$(git rev-list --count "$LAST_TAG"..HEAD --no-merges 2>/dev/null || echo "0")
+            
+            echo "🔍 DEBUG: Found $COMMIT_COUNT commits since $LAST_TAG:"
+            echo "$COMMITS" | head -10
+            if [ "$COMMIT_COUNT" -gt 10 ]; then
+              echo "... and $((COMMIT_COUNT - 10)) more commits"
+            fi
           else
+            echo "🔍 DEBUG: No previous tag, getting all commits..."
             # Get all commits (no previous tag)
-            COMMITS=$(git log --pretty=format:"%s" --no-merges)
+            COMMITS=$(git log --pretty=format:"%h %s" --no-merges)
+            COMMIT_COUNT=$(git rev-list --count HEAD --no-merges 2>/dev/null || echo "0")
+            
+            echo "🔍 DEBUG: Found $COMMIT_COUNT total commits:"
+            echo "$COMMITS" | head -10
+            if [ "$COMMIT_COUNT" -gt 10 ]; then
+              echo "... and $((COMMIT_COUNT - 10)) more commits"
+            fi
           fi
-
-          # Count commits
-          COMMIT_COUNT=$(echo "$COMMITS" | grep -c . || echo "0")
+          
+          # Extract just commit messages for processing (remove commit hash)
+          COMMIT_MESSAGES=$(echo "$COMMITS" | sed 's/^[a-f0-9]* //')
+          
+          # Count commits (handle empty case)
+          if [ -z "$COMMIT_MESSAGES" ]; then
+            COMMIT_COUNT=0
+          else
+            COMMIT_COUNT=$(echo "$COMMIT_MESSAGES" | grep -c . || echo "0")
+          fi
+          
           echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_OUTPUT
-
-          # Store commits (base64 encoded to handle special chars)
-          echo "$COMMITS" | base64 -w 0 > /tmp/commits.txt
+          
+          # Store commit messages (base64 encoded to handle special chars)
+          echo "$COMMIT_MESSAGES" | base64 -w 0 > /tmp/commits.txt || echo "" | base64 -w 0 > /tmp/commits.txt
           echo "COMMITS_FILE=/tmp/commits.txt" >> $GITHUB_OUTPUT
-
+          
           # Log summary
-          echo "Found $COMMIT_COUNT commits since last tag"
+          echo "📊 Summary: Found $COMMIT_COUNT commits since last tag ($LAST_TAG)"
           if [ "$COMMIT_COUNT" -eq 0 ]; then
             echo "⚠️ No commits found - skipping release"
             echo "SKIP_RELEASE=true" >> $GITHUB_OUTPUT
           else
+            echo "✅ Proceeding with release"
             echo "SKIP_RELEASE=false" >> $GITHUB_OUTPUT
           fi
 
@@ -118,32 +171,41 @@ jobs:
           # GITHUB_TOKEN enables git-cliff to access GitHub API for better commit metadata
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e  # Exit on error
+          
+          echo "🔍 DEBUG: Determining version bump type..."
+          
           # Check if manual bump type was provided (workflow_dispatch with non-"auto" value)
           if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.bump_type }}" != "auto" ]; then
             # Use manual bump type from workflow_dispatch input
             BUMP_TYPE="${{ github.event.inputs.bump_type }}"
-            echo "Using manual bump type: $BUMP_TYPE"
+            echo "✅ Using manual bump type: $BUMP_TYPE"
           else
             # Auto-detect bump type using git-cliff
             # git-cliff analyzes commits and determines the appropriate bump type
-            echo "Auto-detecting bump type using git-cliff..."
+            echo "🔍 Auto-detecting bump type using git-cliff..."
             BUMP_TYPE="auto"
           fi
 
           # Get current version from package.json
           CURRENT_VERSION=$(node -p "require('./package.json').version")
-          echo "Current version: $CURRENT_VERSION"
+          echo "📦 Current version: $CURRENT_VERSION"
 
           # Calculate new version using git-cliff
           # If manual bump type provided, use --bump [type] --bumped-version
           # If auto, use --bumped-version (git-cliff auto-detects)
+          echo "🔍 DEBUG: Running git-cliff to calculate new version..."
           if [ "$BUMP_TYPE" == "auto" ]; then
             # Auto-detect: git-cliff analyzes commits and determines bump type
+            echo "🔍 Running: pnpm exec git-cliff --config cliff.toml --bumped-version"
             NEW_VERSION_TAG=$(pnpm exec git-cliff --config cliff.toml --bumped-version 2>&1 | tail -1)
           else
             # Manual: use specified bump type
+            echo "🔍 Running: pnpm exec git-cliff --config cliff.toml --bump $BUMP_TYPE --bumped-version"
             NEW_VERSION_TAG=$(pnpm exec git-cliff --config cliff.toml --bump "$BUMP_TYPE" --bumped-version 2>&1 | tail -1)
           fi
+          
+          echo "🔍 DEBUG: git-cliff returned: '$NEW_VERSION_TAG'"
 
           # Remove 'v' prefix from version tag (e.g., "v0.1.1" -> "0.1.1")
           NEW_VERSION="${NEW_VERSION_TAG#v}"
@@ -151,6 +213,12 @@ jobs:
           # Validate version matches semver pattern
           if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "❌ Error: git-cliff returned invalid version '$NEW_VERSION' (from tag '$NEW_VERSION_TAG')" >&2
+            echo "🔍 DEBUG: Full git-cliff output:" >&2
+            if [ "$BUMP_TYPE" == "auto" ]; then
+              pnpm exec git-cliff --config cliff.toml --bumped-version 2>&1 >&2
+            else
+              pnpm exec git-cliff --config cliff.toml --bump "$BUMP_TYPE" --bumped-version 2>&1 >&2
+            fi
             exit 1
           fi
 
@@ -189,13 +257,16 @@ jobs:
           # GITHUB_TOKEN enables automatic PR links, better commit metadata, and enhanced changelog entries
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Generate changelog entry for unreleased commits (since last tag)
-          # Then replace [Unreleased] with the new version
+          set -e  # Exit on error
+          
           NEW_VERSION="${{ steps.version_calc.outputs.NEW_VERSION }}"
           LAST_TAG="${{ steps.last_tag.outputs.TAG }}"
           
+          echo "🔍 DEBUG: Generating changelog for version $NEW_VERSION"
+          echo "🔍 DEBUG: Base tag: $LAST_TAG"
+          
           # Check if changelog already has this version (from previous failed run)
-          if grep -q "## \[$NEW_VERSION\]" CHANGELOG.md; then
+          if grep -q "## \[$NEW_VERSION\]" CHANGELOG.md 2>/dev/null; then
             echo "⚠️ Changelog already contains version $NEW_VERSION, checking if it has content..."
             # If the version exists but has no content (only header), regenerate
             if grep -A 10 "## \[$NEW_VERSION\]" CHANGELOG.md | grep -q "^###"; then
@@ -209,7 +280,6 @@ jobs:
             fi
           fi
           
-          # Generate changelog for commits between LAST_TAG and HEAD
           # CRITICAL: Delete the new tag locally if it exists (from a previous failed run)
           # This ensures --latest uses LAST_TAG (not NEW_VERSION) as the starting point
           if git rev-parse "v$NEW_VERSION" >/dev/null 2>&1; then
@@ -222,7 +292,10 @@ jobs:
           # --unreleased processes commits that don't belong to a tag
           # --verbose provides debugging information
           # --topo-order ensures tags are sorted topologically (important for complex branching)
-          echo "Generating changelog for commits between $LAST_TAG and HEAD..."
+          echo "🔍 DEBUG: Running git-cliff to generate changelog..."
+          echo "🔍 Command: pnpm exec git-cliff --config cliff.toml --latest --unreleased --verbose --topo-order"
+          
+          # Generate changelog (this prepends to CHANGELOG.md)
           pnpm exec git-cliff --config cliff.toml --latest --unreleased --verbose --topo-order
           
           # Verify git-cliff generated content
@@ -237,16 +310,26 @@ jobs:
             if grep -q "## \[Unreleased\]" CHANGELOG.md; then
               # Count lines in [Unreleased] section (from header to next ## or end)
               UNRELEASED_LINES=$(awk '/^## \[Unreleased\]/,/^## \[/ {count++} END {print count}' CHANGELOG.md)
+              echo "🔍 DEBUG: [Unreleased] section has $UNRELEASED_LINES lines"
+              
               if [ "$UNRELEASED_LINES" -gt 3 ]; then
                 echo "✅ Changelog generated with content ($UNRELEASED_LINES lines)"
                 # Replace [Unreleased] with the new version
                 TODAY=$(date +%Y-%m-%d)
                 sed -i "s/## \[Unreleased\]/## [$NEW_VERSION] - $TODAY/" CHANGELOG.md
-                # Replace the unreleased link at the bottom with the new version link
-                sed -i "s|\[unreleased\]:|[$NEW_VERSION]:|" CHANGELOG.md
+                
+                # Update the unreleased link at the bottom with the new version link
+                REPO_SLUG="${{ github.repository }}"
+                # Replace [unreleased]: link with [NEW_VERSION]: link
+                sed -i "s|\[unreleased\]:|[$NEW_VERSION]:|" CHANGELOG.md || true
                 # Update the compare link to use LAST_TAG..vNEW_VERSION
                 sed -i "s|compare/.*\.\.HEAD|compare/$LAST_TAG..v$NEW_VERSION|" CHANGELOG.md || true
                 sed -i "s|compare/.*\.\.unreleased|compare/$LAST_TAG..v$NEW_VERSION|" CHANGELOG.md || true
+                
+                # Ensure the link is added only if it doesn't exist
+                if ! grep -q "\\[$NEW_VERSION\\]: https://github.com/$REPO_SLUG/compare/$LAST_TAG..v$NEW_VERSION" CHANGELOG.md; then
+                  echo "[$NEW_VERSION]: https://github.com/$REPO_SLUG/compare/$LAST_TAG..v$NEW_VERSION" >> CHANGELOG.md
+                fi
               else
                 echo "⚠️ Changelog generated but [Unreleased] section is empty or has no content"
                 # Still replace to create the version entry, even if empty
@@ -274,8 +357,12 @@ jobs:
         id: new_version
         if: steps.commits.outputs.SKIP_RELEASE != 'true' && steps.changelog.outputs.CHANGELOG_UPDATED == 'true'
         run: |
+          set -e  # Exit on error
+          
           # Update package.json with the version calculated by git-cliff
           NEW_VERSION="${{ steps.version_calc.outputs.NEW_VERSION }}"
+          
+          echo "🔍 DEBUG: Updating package.json version to $NEW_VERSION"
           
           # Use node to update package.json (preserves formatting)
           node -e "
@@ -310,13 +397,21 @@ jobs:
       - name: Commit version and changelog, then create and push tag
         if: steps.commits.outputs.SKIP_RELEASE != 'true' && steps.changelog.outputs.CHANGELOG_UPDATED == 'true'
         run: |
+          set -e  # Exit on error
+          
+          NEW_VERSION="${{ steps.new_version.outputs.NEW_VERSION }}"
+          
+          echo "🔍 DEBUG: Committing version and changelog changes..."
+          
           # Stage and commit version changes
           git add package.json CHANGELOG.md
-          git commit -m "chore: bump version to ${{ steps.new_version.outputs.NEW_VERSION }}"
+          git commit -m "chore: bump version to $NEW_VERSION"
 
+          echo "🔍 DEBUG: Pushing commit to main..."
           # Push commit first (ensures commit is on remote before tag)
           git push --force-with-lease origin main
 
+          echo "🔍 DEBUG: Verifying commit push succeeded..."
           # Verify commit push succeeded
           git fetch origin main --depth=1
           LOCAL_HEAD=$(git rev-parse HEAD)
@@ -327,11 +422,14 @@ jobs:
           fi
           echo "✅ Commit push verified: local and remote are in sync"
 
-          # Create and push tag separately (ensures tag push event triggers release.yml workflow)
-          git tag -a "v${{ steps.new_version.outputs.NEW_VERSION }}" -m "Release v${{ steps.new_version.outputs.NEW_VERSION }}"
-          git push origin "v${{ steps.new_version.outputs.NEW_VERSION }}"
+          echo "🔍 DEBUG: Creating tag v$NEW_VERSION..."
+          # Create and push tag separately (ensures tag push event triggers publish-release.yml workflow)
+          git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
           
-          echo "✅ Tag v${{ steps.new_version.outputs.NEW_VERSION }} pushed successfully"
+          echo "🔍 DEBUG: Pushing tag v$NEW_VERSION..."
+          git push origin "v$NEW_VERSION"
+          
+          echo "✅ Tag v$NEW_VERSION pushed successfully"
 
       - name: Summary
         if: always()
@@ -340,11 +438,13 @@ jobs:
             echo "## ⏭️ Release Skipped" >> $GITHUB_STEP_SUMMARY
             echo "No commits found since last tag. Release skipped." >> $GITHUB_STEP_SUMMARY
           else
-            echo "## ✅ Release Created" >> $GITHUB_STEP_SUMMARY
+            echo "## ✅ Version Bump Complete" >> $GITHUB_STEP_SUMMARY
             echo "- **Version:** ${{ steps.new_version.outputs.NEW_VERSION }}" >> $GITHUB_STEP_SUMMARY
             echo "- **Bump Type:** ${{ steps.version_calc.outputs.BUMP_TYPE }}" >> $GITHUB_STEP_SUMMARY
             echo "- **Commits:** ${{ steps.commits.outputs.COMMIT_COUNT }}" >> $GITHUB_STEP_SUMMARY
             echo "- **Tag:** v${{ steps.new_version.outputs.NEW_VERSION }}" >> $GITHUB_STEP_SUMMARY
             echo "- **Changelog:** ${{ steps.changelog.outputs.CHANGELOG_UPDATED }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Next:** The tag push will automatically trigger the 'Publish Release' workflow." >> $GITHUB_STEP_SUMMARY
           fi
 
