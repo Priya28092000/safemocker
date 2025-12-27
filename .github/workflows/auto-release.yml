@@ -189,7 +189,7 @@ jobs:
           # Generate changelog entry for the NEW version (not current version)
           # This ensures we create a new section instead of regenerating existing one
           NEW_VERSION="${{ steps.calculate_version.outputs.NEW_VERSION }}"
-          git-cliff --config cliff.toml --tag "v$NEW_VERSION"
+          pnpm exec git-cliff --config cliff.toml --tag "v$NEW_VERSION"
           
           # Verify changelog was updated
           if git diff --quiet CHANGELOG.md; then
