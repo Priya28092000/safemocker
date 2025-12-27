@@ -111,9 +111,12 @@ jobs:
             echo "SKIP_RELEASE=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Analyze commits and determine version bump
-        id: version_bump
+      - name: Determine version bump type and calculate new version
+        id: version_calc
         if: steps.commits.outputs.SKIP_RELEASE != 'true'
+        env:
+          # GITHUB_TOKEN enables git-cliff to access GitHub API for better commit metadata
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Check if manual bump type was provided (workflow_dispatch with non-"auto" value)
           if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.bump_type }}" != "auto" ]; then
@@ -121,91 +124,141 @@ jobs:
             BUMP_TYPE="${{ github.event.inputs.bump_type }}"
             echo "Using manual bump type: $BUMP_TYPE"
           else
-            # Auto-detect bump type from commits
-            COMMITS=$(cat ${{ steps.commits.outputs.COMMITS_FILE }} | base64 -d)
-
-            # Analyze commits using our script (pipe commits to stdin)
-            # Use head -1 to get only first line, then strip whitespace
-            BUMP_TYPE=$(echo "$COMMITS" | pnpm analyze:commits | head -1 | tr -d '[:space:]')
-
-            if [ -z "$BUMP_TYPE" ]; then
-              echo "❌ Failed to determine version bump type" >&2
-              exit 1
-            fi
-
-            echo "Auto-detected bump type: $BUMP_TYPE"
+            # Auto-detect bump type using git-cliff
+            # git-cliff analyzes commits and determines the appropriate bump type
+            echo "Auto-detecting bump type using git-cliff..."
+            BUMP_TYPE="auto"
           fi
 
-          # Validate bump type
-          if [ "$BUMP_TYPE" != "major" ] && [ "$BUMP_TYPE" != "minor" ] && [ "$BUMP_TYPE" != "patch" ]; then
-            echo "❌ Invalid bump type: $BUMP_TYPE (must be major, minor, or patch)" >&2
-            exit 1
-          fi
-
-          echo "BUMP_TYPE=$BUMP_TYPE" >> $GITHUB_OUTPUT
-          echo "Final bump type: $BUMP_TYPE"
-
-      - name: Get current version
-        id: current_version
-        if: steps.commits.outputs.SKIP_RELEASE != 'true'
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Current version: $VERSION"
-
-      - name: Calculate new version
-        id: calculate_version
-        if: steps.commits.outputs.SKIP_RELEASE != 'true'
-        run: |
-          # Calculate what the new version will be (without bumping yet)
+          # Get current version from package.json
           CURRENT_VERSION=$(node -p "require('./package.json').version")
-          BUMP_TYPE="${{ steps.version_bump.outputs.BUMP_TYPE }}"
-          
-          # Parse current version
-          IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-          
-          # Calculate new version
-          if [ "$BUMP_TYPE" == "major" ]; then
-            NEW_VERSION="$((major + 1)).0.0"
-          elif [ "$BUMP_TYPE" == "minor" ]; then
-            NEW_VERSION="$major.$((minor + 1)).0"
+          echo "Current version: $CURRENT_VERSION"
+
+          # Calculate new version using git-cliff
+          # If manual bump type provided, use --bump [type] --bumped-version
+          # If auto, use --bumped-version (git-cliff auto-detects)
+          if [ "$BUMP_TYPE" == "auto" ]; then
+            # Auto-detect: git-cliff analyzes commits and determines bump type
+            NEW_VERSION_TAG=$(pnpm exec git-cliff --config cliff.toml --bumped-version 2>&1 | tail -1)
           else
-            NEW_VERSION="$major.$minor.$((patch + 1))"
+            # Manual: use specified bump type
+            NEW_VERSION_TAG=$(pnpm exec git-cliff --config cliff.toml --bump "$BUMP_TYPE" --bumped-version 2>&1 | tail -1)
           fi
-          
+
+          # Remove 'v' prefix from version tag (e.g., "v0.1.1" -> "0.1.1")
+          NEW_VERSION="${NEW_VERSION_TAG#v}"
+
           # Validate version matches semver pattern
           if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Error: calculated version '$NEW_VERSION' doesn't match semver pattern" >&2
+            echo "❌ Error: git-cliff returned invalid version '$NEW_VERSION' (from tag '$NEW_VERSION_TAG')" >&2
             exit 1
           fi
+
+          # Determine the actual bump type by comparing versions
+          IFS='.' read -r current_major current_minor current_patch <<< "$CURRENT_VERSION"
+          IFS='.' read -r new_major new_minor new_patch <<< "$NEW_VERSION"
           
+          if [ "$new_major" -gt "$current_major" ]; then
+            DETECTED_BUMP_TYPE="major"
+          elif [ "$new_minor" -gt "$current_minor" ]; then
+            DETECTED_BUMP_TYPE="minor"
+          elif [ "$new_patch" -gt "$current_patch" ]; then
+            DETECTED_BUMP_TYPE="patch"
+          else
+            echo "❌ Error: New version $NEW_VERSION is not greater than current version $CURRENT_VERSION" >&2
+            exit 1
+          fi
+
+          # If manual bump type was provided, verify it matches detected type
+          if [ "$BUMP_TYPE" != "auto" ] && [ "$BUMP_TYPE" != "$DETECTED_BUMP_TYPE" ]; then
+            echo "⚠️ Warning: Manual bump type '$BUMP_TYPE' differs from git-cliff detected type '$DETECTED_BUMP_TYPE'"
+            echo "Using manual bump type: $BUMP_TYPE"
+            FINAL_BUMP_TYPE="$BUMP_TYPE"
+          else
+            FINAL_BUMP_TYPE="$DETECTED_BUMP_TYPE"
+          fi
+
+          echo "BUMP_TYPE=$FINAL_BUMP_TYPE" >> $GITHUB_OUTPUT
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "Calculated new version: $NEW_VERSION (from $CURRENT_VERSION with $BUMP_TYPE bump)"
+          echo "✅ Version bump: $CURRENT_VERSION → $NEW_VERSION ($FINAL_BUMP_TYPE)"
 
       - name: Generate changelog
         id: changelog
         if: steps.commits.outputs.SKIP_RELEASE != 'true'
+        env:
+          # GITHUB_TOKEN enables automatic PR links, better commit metadata, and enhanced changelog entries
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Generate changelog entry for unreleased commits (since last tag)
           # Then replace [Unreleased] with the new version
-          NEW_VERSION="${{ steps.calculate_version.outputs.NEW_VERSION }}"
+          NEW_VERSION="${{ steps.version_calc.outputs.NEW_VERSION }}"
           LAST_TAG="${{ steps.last_tag.outputs.TAG }}"
           
           # Check if changelog already has this version (from previous failed run)
           if grep -q "## \[$NEW_VERSION\]" CHANGELOG.md; then
-            echo "⚠️ Changelog already contains version $NEW_VERSION, skipping generation"
-            echo "CHANGELOG_UPDATED=true" >> $GITHUB_OUTPUT
-            exit 0
+            echo "⚠️ Changelog already contains version $NEW_VERSION, checking if it has content..."
+            # If the version exists but has no content (only header), regenerate
+            if grep -A 10 "## \[$NEW_VERSION\]" CHANGELOG.md | grep -q "^###"; then
+              echo "✅ Changelog already has content for version $NEW_VERSION, skipping generation"
+              echo "CHANGELOG_UPDATED=true" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              echo "⚠️ Changelog has version $NEW_VERSION but no content, regenerating..."
+              # Remove the empty version section
+              sed -i "/## \[$NEW_VERSION\]/,/^## \[/ { /## \[$NEW_VERSION\]/d; /^## \[/!d; }" CHANGELOG.md || true
+            fi
           fi
           
-          # Generate changelog for unreleased commits
-          pnpm exec git-cliff --config cliff.toml --unreleased --latest
+          # Generate changelog for commits between LAST_TAG and HEAD
+          # CRITICAL: Delete the new tag locally if it exists (from a previous failed run)
+          # This ensures --latest uses LAST_TAG (not NEW_VERSION) as the starting point
+          if git rev-parse "v$NEW_VERSION" >/dev/null 2>&1; then
+            echo "⚠️ Tag v$NEW_VERSION already exists locally, deleting for changelog generation"
+            git tag -d "v$NEW_VERSION" || true
+          fi
           
-          # Replace [Unreleased] with the new version in the changelog
+          # Use --latest --unreleased to generate for commits since the latest tag
+          # After deleting NEW_VERSION tag (if it existed), --latest will use LAST_TAG
+          # --unreleased processes commits that don't belong to a tag
+          # --verbose provides debugging information
+          # --topo-order ensures tags are sorted topologically (important for complex branching)
+          echo "Generating changelog for commits between $LAST_TAG and HEAD..."
+          pnpm exec git-cliff --config cliff.toml --latest --unreleased --verbose --topo-order
+          
+          # Verify git-cliff generated content
+          if [ ! -f CHANGELOG.md ]; then
+            echo "❌ git-cliff did not generate CHANGELOG.md"
+            exit 1
+          fi
+          
+          # Check if changelog was generated with content
           if [ -f CHANGELOG.md ]; then
-            # Use sed to replace [Unreleased] with [NEW_VERSION] and add date
-            TODAY=$(date +%Y-%m-%d)
-            sed -i "s/## \[Unreleased\]/## [$NEW_VERSION] - $TODAY/" CHANGELOG.md
+            # Check if [Unreleased] section exists and has content (more than just header)
+            if grep -q "## \[Unreleased\]" CHANGELOG.md; then
+              # Count lines in [Unreleased] section (from header to next ## or end)
+              UNRELEASED_LINES=$(awk '/^## \[Unreleased\]/,/^## \[/ {count++} END {print count}' CHANGELOG.md)
+              if [ "$UNRELEASED_LINES" -gt 3 ]; then
+                echo "✅ Changelog generated with content ($UNRELEASED_LINES lines)"
+                # Replace [Unreleased] with the new version
+                TODAY=$(date +%Y-%m-%d)
+                sed -i "s/## \[Unreleased\]/## [$NEW_VERSION] - $TODAY/" CHANGELOG.md
+                # Replace the unreleased link at the bottom with the new version link
+                sed -i "s|\[unreleased\]:|[$NEW_VERSION]:|" CHANGELOG.md
+                # Update the compare link to use LAST_TAG..vNEW_VERSION
+                sed -i "s|compare/.*\.\.HEAD|compare/$LAST_TAG..v$NEW_VERSION|" CHANGELOG.md || true
+                sed -i "s|compare/.*\.\.unreleased|compare/$LAST_TAG..v$NEW_VERSION|" CHANGELOG.md || true
+              else
+                echo "⚠️ Changelog generated but [Unreleased] section is empty or has no content"
+                # Still replace to create the version entry, even if empty
+                TODAY=$(date +%Y-%m-%d)
+                sed -i "s/## \[Unreleased\]/## [$NEW_VERSION] - $TODAY/" CHANGELOG.md || echo "## [$NEW_VERSION] - $TODAY" >> CHANGELOG.md
+              fi
+            else
+              echo "⚠️ [Unreleased] section not found in changelog, creating empty version entry"
+              # Create a new version entry at the top
+              TODAY=$(date +%Y-%m-%d)
+              sed -i "2i## [$NEW_VERSION] - $TODAY" CHANGELOG.md
+            fi
           fi
           
           # Verify changelog was updated
@@ -217,31 +270,36 @@ jobs:
             echo "CHANGELOG_UPDATED=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Bump version
+      - name: Update package.json version
         id: new_version
         if: steps.commits.outputs.SKIP_RELEASE != 'true' && steps.changelog.outputs.CHANGELOG_UPDATED == 'true'
         run: |
-          # Run bump-version to actually update package.json
-          pnpm bump:${{ steps.version_bump.outputs.BUMP_TYPE }}
-
-          # Read new version from package.json to verify
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          EXPECTED_VERSION="${{ steps.calculate_version.outputs.NEW_VERSION }}"
+          # Update package.json with the version calculated by git-cliff
+          NEW_VERSION="${{ steps.version_calc.outputs.NEW_VERSION }}"
           
-          # Verify version matches what we calculated
-          if [ "$NEW_VERSION" != "$EXPECTED_VERSION" ]; then
-            echo "Error: version mismatch. Expected $EXPECTED_VERSION but got $NEW_VERSION" >&2
+          # Use node to update package.json (preserves formatting)
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$NEW_VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          # Verify version was updated correctly
+          ACTUAL_VERSION=$(node -p "require('./package.json').version")
+          if [ "$ACTUAL_VERSION" != "$NEW_VERSION" ]; then
+            echo "❌ Error: Failed to update package.json version. Expected $NEW_VERSION but got $ACTUAL_VERSION" >&2
             exit 1
           fi
           
           # Validate version matches semver pattern
           if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Error: version '$NEW_VERSION' doesn't match semver pattern" >&2
+            echo "❌ Error: version '$NEW_VERSION' doesn't match semver pattern" >&2
             exit 1
           fi
 
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "Version bumped to: $NEW_VERSION"
+          echo "✅ package.json version updated to: $NEW_VERSION"
 
       - name: Configure git
         if: steps.commits.outputs.SKIP_RELEASE != 'true'
@@ -284,7 +342,7 @@ jobs:
           else
             echo "## ✅ Release Created" >> $GITHUB_STEP_SUMMARY
             echo "- **Version:** ${{ steps.new_version.outputs.NEW_VERSION }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Bump Type:** ${{ steps.version_bump.outputs.BUMP_TYPE }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Bump Type:** ${{ steps.version_calc.outputs.BUMP_TYPE }}" >> $GITHUB_STEP_SUMMARY
             echo "- **Commits:** ${{ steps.commits.outputs.COMMIT_COUNT }}" >> $GITHUB_STEP_SUMMARY
             echo "- **Tag:** v${{ steps.new_version.outputs.NEW_VERSION }}" >> $GITHUB_STEP_SUMMARY
             echo "- **Changelog:** ${{ steps.changelog.outputs.CHANGELOG_UPDATED }}" >> $GITHUB_STEP_SUMMARY

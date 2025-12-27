@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1] - 2025-12-27
 
+### Added
+
+- enhance GitHub Actions workflow to extract specific changelog section for releases
+- add output schema validation to action handlers and update package structure for CommonJS
+- add git-cliff configuration for automated changelog generation and enhance CI workflows
+- enhance auto-release workflow to support manual version bump types and improve detection logic
+- implement version calculation and validation in auto-release workflow for improved version management
+- update Jest configuration to use v8 coverage provider for improved performance and avoid instrumentation conflicts; refactor helper exports to prevent coverage issues
+- enhance Jest configuration for improved coverage tracking and add tests for output schema validation and default values in action clients
+- improve changelog generation in auto-release workflow by checking for existing entries and updating version sections
+
+### Changed
+
+- update auto-release and release workflows to improve version tagging and push process, ensuring commit verification before tagging
+
+### Fixed
+
+- update auto-release workflow to use pnpm for executing git-cliff, ensuring consistent environment for changelog generation
+
 ## [0.1.0] - 2025-12-23
 
 ### Added
@@ -34,4 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ✅ Rate limiting middleware
 - ✅ Metadata validation middleware
 - ✅ Dual CJS/ESM builds for Jest and Vitest compatibility
+
+[0.1.1]: https://github.com/JSONbored/safemocker/compare/v0.1.0..v0.1.1
+[0.1.0]: https://github.com/JSONbored/safemocker/releases/tag/v0.1.0
 
