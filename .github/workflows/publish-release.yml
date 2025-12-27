@@ -89,15 +89,24 @@ jobs:
           echo "TAG=$TAG" >> $GITHUB_OUTPUT
           echo "✅ Extracted version: $VERSION from tag: $TAG"
 
-      - name: Check for NPM_TOKEN secret before setup-node
+      - name: Check environment before setup
         run: |
-          echo "🔍 DEBUG: Checking for NPM_TOKEN secret..."
-          if [ -n "${{ secrets.NPM_TOKEN }}" ]; then
-            echo "⚠️ WARNING: NPM_TOKEN secret exists in repository (this will cause setup-node to set NODE_AUTH_TOKEN)"
-            echo "For trusted publishing, NPM_TOKEN secret should NOT be set"
-          else
-            echo "✅ No NPM_TOKEN secret found (correct for trusted publishing)"
+          echo "🔍 DEBUG: Environment check BEFORE setup-node..."
+          echo "NODE_AUTH_TOKEN is set: $([ -n "${NODE_AUTH_TOKEN:-}" ] && echo 'YES' || echo 'NO')"
+          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "⚠️ WARNING: NODE_AUTH_TOKEN already set before setup-node (length: ${#NODE_AUTH_TOKEN} chars)"
           fi
+          echo "NPM_TOKEN secret exists: $([ -n "${{ secrets.NPM_TOKEN }}" ] && echo 'YES' || echo 'NO')"
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL: ${ACTIONS_ID_TOKEN_REQUEST_URL:-not set}"
+          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+set (hidden)}"
+          if [ -n "$NPM_CONFIG_USERCONFIG" ]; then
+            echo "NPM_CONFIG_USERCONFIG: $NPM_CONFIG_USERCONFIG"
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -105,6 +114,7 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           cache: 'pnpm'
+          # CRITICAL: Do NOT provide NODE_AUTH_TOKEN input - we want OIDC trusted publishing
           # According to official npm docs, setup-node with registry-url + id-token: write
           # should automatically use OIDC without needing NODE_AUTH_TOKEN
           # If NODE_AUTH_TOKEN is set, it will be logged and cleaned up before publish
@@ -113,33 +123,34 @@ jobs:
         run: |
           echo "🔍 DEBUG: Environment check after setup-node..."
           echo "NODE_AUTH_TOKEN is set: $([ -n "$NODE_AUTH_TOKEN" ] && echo 'YES' || echo 'NO')"
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            echo "⚠️ WARNING: NODE_AUTH_TOKEN is set (length: ${#NODE_AUTH_TOKEN} chars)"
+            echo "First 10 chars: ${NODE_AUTH_TOKEN:0:10}..."
+          fi
           echo "NPM_TOKEN secret exists: $([ -n "${{ secrets.NPM_TOKEN }}" ] && echo 'YES' || echo 'NO')"
           echo "NPM_CONFIG_USERCONFIG: ${NPM_CONFIG_USERCONFIG:-not set}"
           if [ -n "$NPM_CONFIG_USERCONFIG" ] && [ -f "$NPM_CONFIG_USERCONFIG" ]; then
             echo "🔍 DEBUG: $NPM_CONFIG_USERCONFIG exists, checking for auth token..."
-            if grep -q "_authToken\|authToken" "$NPM_CONFIG_USERCONFIG"; then
+            echo "Full contents:"
+            cat "$NPM_CONFIG_USERCONFIG"
+            if grep -qE "(_authToken|authToken|\$\{NODE_AUTH_TOKEN\})" "$NPM_CONFIG_USERCONFIG"; then
               echo "⚠️ WARNING: $NPM_CONFIG_USERCONFIG contains auth token references"
-              echo "Contents:"
-              cat "$NPM_CONFIG_USERCONFIG"
             else
               echo "✅ $NPM_CONFIG_USERCONFIG does not contain auth tokens"
             fi
           fi
           if [ -f ~/.npmrc ]; then
             echo "🔍 DEBUG: ~/.npmrc exists, checking for auth token..."
-            if grep -q "_authToken\|authToken" ~/.npmrc; then
+            if grep -qE "(_authToken|authToken)" ~/.npmrc; then
               echo "⚠️ WARNING: ~/.npmrc contains auth token references"
+              echo "Contents:"
+              cat ~/.npmrc
             else
               echo "✅ ~/.npmrc does not contain auth tokens"
             fi
           else
             echo "✅ ~/.npmrc does not exist"
           fi
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
-        with:
-          version: 10
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
