@@ -153,13 +153,44 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Current version: $VERSION"
 
+      - name: Calculate new version
+        id: calculate_version
+        if: steps.commits.outputs.SKIP_RELEASE != 'true'
+        run: |
+          # Calculate what the new version will be (without bumping yet)
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          BUMP_TYPE="${{ steps.version_bump.outputs.BUMP_TYPE }}"
+          
+          # Parse current version
+          IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+          
+          # Calculate new version
+          if [ "$BUMP_TYPE" == "major" ]; then
+            NEW_VERSION="$((major + 1)).0.0"
+          elif [ "$BUMP_TYPE" == "minor" ]; then
+            NEW_VERSION="$major.$((minor + 1)).0"
+          else
+            NEW_VERSION="$major.$minor.$((patch + 1))"
+          fi
+          
+          # Validate version matches semver pattern
+          if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: calculated version '$NEW_VERSION' doesn't match semver pattern" >&2
+            exit 1
+          fi
+          
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Calculated new version: $NEW_VERSION (from $CURRENT_VERSION with $BUMP_TYPE bump)"
+
       - name: Generate changelog
         id: changelog
         if: steps.commits.outputs.SKIP_RELEASE != 'true'
         run: |
-          # Generate changelog entry (fail if this fails - we need changelog before bumping version)
-          pnpm changelog:generate
-
+          # Generate changelog entry for the NEW version (not current version)
+          # This ensures we create a new section instead of regenerating existing one
+          NEW_VERSION="${{ steps.calculate_version.outputs.NEW_VERSION }}"
+          git-cliff --config cliff.toml --tag "v$NEW_VERSION"
+          
           # Verify changelog was updated
           if git diff --quiet CHANGELOG.md; then
             echo "⚠️ Changelog was not updated"
@@ -173,12 +204,19 @@ jobs:
         id: new_version
         if: steps.commits.outputs.SKIP_RELEASE != 'true' && steps.changelog.outputs.CHANGELOG_UPDATED == 'true'
         run: |
-          # Run bump-version and capture output
+          # Run bump-version to actually update package.json
           pnpm bump:${{ steps.version_bump.outputs.BUMP_TYPE }}
 
-          # Read new version from package.json
+          # Read new version from package.json to verify
           NEW_VERSION=$(node -p "require('./package.json').version")
-
+          EXPECTED_VERSION="${{ steps.calculate_version.outputs.NEW_VERSION }}"
+          
+          # Verify version matches what we calculated
+          if [ "$NEW_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "Error: version mismatch. Expected $EXPECTED_VERSION but got $NEW_VERSION" >&2
+            exit 1
+          fi
+          
           # Validate version matches semver pattern
           if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "Error: version '$NEW_VERSION' doesn't match semver pattern" >&2
@@ -186,7 +224,7 @@ jobs:
           fi
 
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "New version: $NEW_VERSION"
+          echo "Version bumped to: $NEW_VERSION"
 
       - name: Configure git
         if: steps.commits.outputs.SKIP_RELEASE != 'true'
